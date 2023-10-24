@@ -13,6 +13,7 @@ global cosmosServ
 global orderManager
 
 def create_new_connectors():
+    # This creates new objects for the several connectors
     global mainServ
     global clientServ
     global cosmosServ
@@ -41,6 +42,7 @@ def create_new_connectors():
 
 @app.route('/api/orders/<date>')
 def get_orders(date):
+    # This route is used to get orders for a specific date
     attempt = 0
     error = ""
     while attempt < 3:
@@ -60,6 +62,7 @@ def get_orders(date):
 
 @app.route('/api/orders/process/<date>')
 def create_dockets(date):
+    #This route creates dockets for a specific date
     attempt = 0
     error = ""
     
@@ -80,6 +83,7 @@ def create_dockets(date):
 
 @app.route('/api/orders/endofday/<date>')
 def end_of_day(date):
+    #This route preforms the end of day operations
     attempt = 0
     error = ""
     while attempt < 3:
@@ -99,6 +103,7 @@ def end_of_day(date):
 
 @app.route('/api/orders/new', methods=["POST"])
 def new_order():
+    #This route creates a new order
     attempt = 0
     error = ""
     while attempt < 3:
@@ -119,6 +124,7 @@ def new_order():
 
 @app.route("/", defaults={'path': ''})
 def serve(path):
+    #This route serves the frontend
     return app.send_static_file('index.html')
 
 create_new_connectors()
