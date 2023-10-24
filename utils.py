@@ -2,6 +2,7 @@ import pyodbc
 from pymongo import MongoClient
 import random
 from datetime import datetime
+import time
 
 class SQLDataAccess:
     #This class is used to create objects for azure sql operations
@@ -14,20 +15,22 @@ class SQLDataAccess:
 
     def connect(self):
         # Azure MySQL Database Configuration
-        connection_attempt = 1
         print("Connecting to " + self.server)
         driver= '{ODBC Driver 18 for SQL Server}'
         connection_string = 'Driver='+driver+';Server=tcp:'+self.server+',1433;Database='+self.database+';Uid='+self.username+';PWD='+self.password+';Encrypt=yes;TrustServerCertificate=no;'
+        attempt = 0
+        while attempt < 3:
+            try:
+                #Connnect to the database
+                connection = pyodbc.connect(connection_string, timeout=30)
+                print("Successfully connected")
+                return connection
+            except Exception as e:
+                print("Failed to Connect to " + self.server)
+                print(e)
+                attempt += 1
+                time.sleep(30)
         
-        try:
-            #Connnect to the database
-            connection = pyodbc.connect(connection_string, timeout=30)
-            print("Successfully connected")
-            return connection
-        except Exception as e:
-            print("Failed to Connect to " + self.server)
-            print(e)
-            connection_attempt += 1
         raise ValueError('Cannot Connect With This Object')
 
     def get_data(self, query):

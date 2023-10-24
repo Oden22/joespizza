@@ -1,7 +1,7 @@
 from flask import Flask, render_template, jsonify, request, send_from_directory
 from utils import *
 from flask_cors import CORS
-
+import time
 # Create a Flask web application
 app = Flask(__name__, static_url_path='/', static_folder='build')
 
@@ -40,6 +40,7 @@ def create_new_connectors():
 
     orderManager = OrderManager(clientServ, mainServ, cosmosServ)
 
+
 @app.route('/api/orders/<date>')
 def get_orders(date):
     # This route is used to get orders for a specific date
@@ -52,8 +53,8 @@ def get_orders(date):
             print("Successfully got Orders for date: " + date)
             return jsonify(formatted_daily_orders)
         except Exception as e:
-            print("Creating New Connectors")
             print(e)
+            print("Creating New Connectors")
             error = e
             create_new_connectors()
             attempt += 1
