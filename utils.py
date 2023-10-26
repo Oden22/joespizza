@@ -3,6 +3,11 @@ from pymongo import MongoClient
 import random
 from datetime import datetime
 import time
+import base64
+from reportlab.lib.pagesizes import letter
+from reportlab.lib import colors
+from reportlab.platypus import SimpleDocTemplate, Paragraph
+from reportlab.lib.styles import getSampleStyleSheet
 
 class SQLDataAccess:
     #This class is used to create objects for azure sql operations
@@ -71,6 +76,7 @@ class SQLDataAccess:
             self.connection.close() 
             raise ValueError('Cannot Connect With This Object')
 
+
 class CosmosDataAccess:
     #This class is used to create objects to connect to cosmos db 
     def __init__(self, db_name, uri):
@@ -87,10 +93,8 @@ class CosmosDataAccess:
         #If there is sever rows of data use insert_many, otherwise use insert_one
         if isinstance(data, list):
                 result = my_col.insert_many(data)
-                return result.inserted_ids
         elif isinstance(data, dict):
             result = my_col.insert_one(data)
-            return result.inserted_id
         else:
             raise ValueError("Data should be a dictionary or a list of dictionaries")
         
@@ -109,10 +113,29 @@ class CosmosDataAccess:
 
     def get_daily_summary(self, target_date):
         #Get the daily summary of orders from the cosmos collection Docket
-        docket_collection = self.my_db["Docket"]
-        total_orders = docket_collection.count_documents({"orderDate": target_date})
-        total_sales = sum(order["totalOrderPrice"] for order in docket_collection.find({"orderDate": target_date}))
-        total_commision = sum(order["totalDriverCommision"] for order in docket_collection.find({"orderDate": target_date}))
+        order_collection = self.my_db["Orders"]
+        total_orders = order_collection.count_documents({"orderDate": target_date})
+
+        # Define the pipeline for aggregation
+        pipeline = [
+            {"$match": {"orderDate": target_date}},
+            {"$group": {
+                "_id": None,
+                "total_sales": {"$sum": "$totalOrderPrice"},
+                "total_commision": {"$sum": "$totalDriverCommision"}
+            }}
+        ]
+
+        # Execute the aggregation query
+        result = list(order_collection.aggregate(pipeline))
+
+        # Get the total_sales and total_commision
+        if result:
+            total_sales = result[0]["total_sales"]
+            total_commision = result[0]["total_commision"]
+        else:
+            total_sales = 0
+            total_commision = 0
 
         #Pipeline queryies to get the most popular pizza
         pipeline = [
@@ -122,7 +145,7 @@ class CosmosDataAccess:
             {"$sort": {"count": -1}},
             {"$limit": 1}
         ]
-        most_popular_pizza = docket_collection.aggregate(pipeline)
+        most_popular_pizza = order_collection.aggregate(pipeline)
 
         # Extract the result
         most_popular_pizza = list(most_popular_pizza)
@@ -138,7 +161,9 @@ class OrderManager:
         self.cosmosServ = cosmosServ
 
     def format_daily_orders(self, day_orders):
-        #Format the daily orders in a usable way for the document database
+        '''
+        Format the daily orders in a usable way for the document database
+        '''
         print("Formatting Orders")
         orders = {}
 
@@ -146,6 +171,8 @@ class OrderManager:
             order_id = order_data['ORDER_ID']
             
             if order_id not in orders:
+                driver = self.get_closest_driver(order_data['POST_CODE'])
+
                 orders[order_id] = {
                     "orderId": order_data["ORDER_ID"],
                     "customer": {
@@ -158,8 +185,11 @@ class OrderManager:
                     },
                     "orderDate": str(order_data['ORDER_DATE']), 
                     "storeId": "1102929",  
-                    "orderItems": []
+                    "orderItems": [],
+                    "driverId": driver["driverId"],
+                    "driverName": driver["name"],
                 }
+
             order_items = {
                 "itemId": order_data["ORDER_ITEM_ID"],
                 "productName": order_data['PRODUCT_NAME'],
@@ -167,56 +197,52 @@ class OrderManager:
                 "itemPrice": float(order_data['LIST_PRICE']),
                 "totalPrice": float(order_data['LIST_PRICE']) * int(order_data['QUANTITY'])
             }
+
             orders[order_id]["orderItems"].append(order_items)
             total_order_price = sum(item["totalPrice"] for item in orders[order_id]["orderItems"])
             orders[order_id]["totalOrderPrice"] = total_order_price
+            orders[order_id]["totalDriverCommision"] = round(float(driver["comission"]) * total_order_price, 2)
 
         orders_to_return = []
         for k, v in orders.items():
             orders_to_return.append(v)
         return orders_to_return
 
-    def create_docket(self, order):
-        #Create a docket
-        docket = order
-        print("Creating Docket")
-        try:
-            driver = self.cosmosServ.get_data_from_cosmos("Driver", {
-                "$and": [
-                    {"suburbStart": {"$lte": int(order['customer']['postCode'])}},
-                    {"suburbEnd": {"$gte": int(order['customer']['postCode'])}}
-                ]
-            })
-            driver = driver[0]
-        except:
-            print("Failed to find driver covering range, finding closest driver")
-            customer_postcode = int(order['customer']['postCode'])
+    def create_pdf(self, docket):
+        doc = SimpleDocTemplate("temp.pdf", pagesize=letter)
+        story = []
 
-            # Search for the driver with the closest range to the postCode
-            drivers = self.cosmosServ.get_data_from_cosmos("Driver", {})
+        # Create a paragraph style with word wrapping
+        styles = getSampleStyleSheet()
+        style = styles["Normal"]
+        style.wordWrap = 'CJK'
 
-            # Initialize variables to keep track of the closest driver and the minimum difference
-            driver = None
-            min_difference = float('inf')
+        # Iterate through the dictionary and add each item as a paragraph
+        for key, value in docket.items():
+            item = f"<b>{key}:</b> {value}"
+            p = Paragraph(item, style)
+            story.append(p)
 
-            for driver in drivers:
-                suburb_start = driver.get("suburbStart")
-                suburb_end = driver.get("suburbEnd")
+        doc.build(story)
 
-                if suburb_start is not None and suburb_end is not None:
-                    difference = min(abs(suburb_start - customer_postcode), abs(suburb_end - customer_postcode))
+        # Encode the generated PDF content as base64
+        with open("temp.pdf", "rb") as pdf_file:
+            pdf_content_base64 = base64.b64encode(pdf_file.read()).decode('utf-8')
 
-                    if difference < min_difference:
-                        min_difference = difference
-                        driver = driver
+        return pdf_content_base64
 
-        docket["driverId"] = driver["driverId"]
-        docket["driverName"] = driver["name"]
-        docket["totalDriverCommision"] = float(driver["comission"]) * float(docket["totalOrderPrice"])
-        self.cosmosServ.add_data_to_cosmos(docket, "Docket")
+    def create_docket_for_order(self, order):
+        docket = {}
+        docket["customer"] = order["customer"]
+        docket["orderDate"] = order["orderDate"]
+        docket["storeId"] = order["storeId"]
+        docket["orderItems"] = order["orderItems"]
+        docket["driverName"] = order["driverName"]
+        docket["OrderTotal"] = order["totalOrderPrice"]
+        docket["pdf"] = self.create_pdf(docket)
         return docket
 
-    def get_and_format_daily_orders(self, date):
+    def get_daily_orders(self,date):
         #Get the daily orders and format them
         daily_orders = self.mainServ.get_data(
             f"""
@@ -239,36 +265,62 @@ class OrderManager:
                 WHERE ORDER_DATE = (SELECT MIN(ORDER_DATE) FROM PIZZA.ORDERS WHERE ORDER_DATE = '{date}')
                 """
             )
-        formatted_daily_orders = self.format_daily_orders(daily_orders)
-        return formatted_daily_orders
+        return daily_orders
+
+    def get_closest_driver(self, postcode):
+        try:
+            driver = self.cosmosServ.get_data_from_cosmos("Driver", {
+                "$and": [
+                    {"suburbStart": {"$lte": int(postcode)}},
+                    {"suburbEnd": {"$gte": int(postcode)}}
+                ]
+            })
+            driver = driver[0]
+        except:
+            print("Failed to find driver covering range, finding closest driver")
+            customer_postcode = int(postcode)
+
+            # Search for the driver with the closest range to the postCode
+            drivers = self.cosmosServ.get_data_from_cosmos("Driver", {})
+
+            # Initialize variables to keep track of the closest driver and the minimum difference
+            driver = None
+            min_difference = float('inf')
+
+            for driver in drivers:
+                suburb_start = driver.get("suburbStart")
+                suburb_end = driver.get("suburbEnd")
+
+                if suburb_start is not None and suburb_end is not None:
+                    difference = min(abs(suburb_start - customer_postcode), abs(suburb_end - customer_postcode))
+
+                    if difference < min_difference:
+                        min_difference = difference
+                        driver = driver
+
+        return driver
 
     def process_orders(self, date):
         #Gets the daily orders, annd creates dockets for each of them
-        formatted_daily_orders = self.get_and_format_daily_orders(date)
-
-        days_orders_cursor = self.cosmosServ.get_data_from_cosmos("Orders", {"orderDate": date})
+        days_orders_cursor = self.cosmosServ.get_data_from_cosmos("Orders", {"orderDate": date}, {'_id': 0})
         days_orders = list(days_orders_cursor)  # Convert cursor to a list
 
         if days_orders:
-            dockets_cursor = self.cosmosServ.get_data_from_cosmos("Docket", {"orderDate": date}, {'_id': 0})
-            dockets = list(dockets_cursor)  # Convert cursor to a list
             print("Orders have already been created")
-            if dockets:
-                print("Dockets have already been created")
-                return dockets
-            else:
-                for order in formatted_daily_orders:
-                    self.create_docket(order)
+            return days_orders
         else:
-            self.cosmosServ.add_data_to_cosmos(formatted_daily_orders, "Orders")
+            daily_orders = self.get_daily_orders(date)
+            formatted_daily_orders = self.format_daily_orders(daily_orders)
+
             for order in formatted_daily_orders:
-                self.create_docket(order)
+                docket = self.create_docket_for_order(order)
+                order["docket"] = docket
 
+            self.cosmosServ.add_data_to_cosmos(formatted_daily_orders, "Orders")
 
-        dockets_cursor = self.cosmosServ.get_data_from_cosmos("Docket", {"orderDate": date}, {'_id': 0})
-        dockets = list(dockets_cursor) 
-
-        return dockets
+        for order in formatted_daily_orders:
+                    order.pop("_id", None)
+        return formatted_daily_orders
 
     def run_day_operations(self, date):
         #Run operations for a complete day, creating dockets, and the summary data
@@ -276,6 +328,7 @@ class OrderManager:
         self.end_of_day_operations(date)
 
     def create_new_order(self, order):
+        print(order)
         #Create a new order
         total_price = 0
         last_order_id = self.mainServ.get_data("select MAX(order_id) as order_id from pizza.orders")[0]["order_id"]
@@ -310,13 +363,19 @@ class OrderManager:
         
         order['orderDate'] = datetime.now().strftime('%Y-%m-%d')
         order['totalOrderPrice'] = total_price
+
+        driver = self.get_closest_driver(order["customer"]["postCode"])
+
+        order["driverId"] = driver["driverId"]
+        order["driverName"] = driver["name"]
+        order["totalDriverCommision"] = round(float(driver["comission"]) * total_price, 2)
+
+        docket = self.create_docket_for_order(order)
+        order["docket"] = docket
+
         self.cosmosServ.add_data_to_cosmos(order, "Orders")
-        docket = self.create_docket(order)
-        try:
-            del docket["_id"]
-        except:
-            pass
-        return docket
+        del order["_id"]
+        return order
 
     def end_of_day_operations(self, date):
         #Get the daily summary and add the data into the sql servers.
@@ -344,6 +403,7 @@ class OrderManager:
             ''', (date, total_orders, total_sales, total_commision, most_popular_pizza))
         except:
             print("Summary Already Created")
+            return summary_dict
 
 
         self.mainServ.commit_data('''

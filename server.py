@@ -46,18 +46,20 @@ def get_orders(date):
     # This route is used to get orders for a specific date
     attempt = 0
     error = ""
-    while attempt < 3:
-        print("attempt: " + str(attempt))
-        try:
-            formatted_daily_orders = orderManager.get_and_format_daily_orders(date)
-            print("Successfully got Orders for date: " + date)
-            return jsonify(formatted_daily_orders)
-        except Exception as e:
-            print(e)
-            print("Creating New Connectors")
-            error = e
-            create_new_connectors()
-            attempt += 1
+
+    print("attempt: " + str(attempt))
+    try:
+        daily_orders = orderManager.get_daily_orders(date)
+        formatted_daily_orders = orderManager.format_daily_orders(daily_orders)
+        print(formatted_daily_orders)
+        print("Successfully got Orders for date: " + date)
+        return jsonify(formatted_daily_orders)
+    except Exception as e:
+        print(e)
+        print("Creating New Connectors")
+        error = e
+        create_new_connectors()
+        attempt += 1
     
     return jsonify({'error': str(error)}), 500
 
@@ -67,18 +69,17 @@ def create_dockets(date):
     attempt = 0
     error = ""
     
-    while attempt < 3:
-        print("attempt: " + str(attempt))
-        try:
-            dockets = orderManager.process_orders(date)
-            print("Successfully Processed Dockets for date: " + date)
-            return jsonify(dockets)
-        except Exception as e:
-            print("Creating New Connectors")
-            print(e)
-            error = e
-            create_new_connectors()
-            attempt += 1
+    try:
+        dockets = orderManager.process_orders(date)
+        print("Successfully Processed Dockets for date: " + date)
+        print(dockets)
+        return jsonify(dockets)
+    except Exception as e:
+        print("Creating New Connectors")
+        print(e)
+        error = e
+        create_new_connectors()
+        attempt += 1
     
     return jsonify({'error': str(error)}), 500
 
@@ -87,18 +88,16 @@ def end_of_day(date):
     #This route preforms the end of day operations
     attempt = 0
     error = ""
-    while attempt < 3:
-        print("attempt: " + str(attempt))
-        try:
-            summary = orderManager.end_of_day_operations(date)
-            print("Successfully Processed End Of Day for date: " + date)
-            return jsonify(summary)
-        except Exception as e:
-            print("Creating New Connectors")
-            print(e)
-            error = e
-            create_new_connectors()
-            attempt += 1
+    try:
+        summary = orderManager.end_of_day_operations(date)
+        print("Successfully Processed End Of Day for date: " + date)
+        return jsonify(summary)
+    except Exception as e:
+        print("Creating New Connectors")
+        print(e)
+        error = e
+        create_new_connectors()
+
     
     return jsonify({'error': str(error)}), 500
 
@@ -107,19 +106,19 @@ def new_order():
     #This route creates a new order
     attempt = 0
     error = ""
-    while attempt < 3:
-        print("attempt: " + str(attempt))
-        try:
-            data = request.get_json()
-            docket = orderManager.create_new_order(data)
-            print("Successfully Created Order")
-            return jsonify(docket)
-        except Exception as e:
-            print("Creating New Connectors")
-            print(e)
-            error = e
-            create_new_connectors()
-            attempt += 1
+    print("attempt: " + str(attempt))
+    try:
+        data = request.get_json()
+        order = orderManager.create_new_order(data)
+
+        print("Successfully Created Order")
+        return jsonify(order)
+    except Exception as e:
+        print("Creating New Connectors")
+        print(e)
+        error = e
+        create_new_connectors()
+        attempt += 1
     
     return jsonify({'error': str(error)}), 500
 
