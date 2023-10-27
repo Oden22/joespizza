@@ -10,7 +10,9 @@ from reportlab.platypus import SimpleDocTemplate, Paragraph
 from reportlab.lib.styles import getSampleStyleSheet
 
 class SQLDataAccess:
-    #This class is used to create objects for azure sql operations
+    '''
+        This class is used to create objects for azure sql operations
+    '''
     def __init__(self, server, database, username, password):
         self.server = server
         self.database = database
@@ -19,7 +21,9 @@ class SQLDataAccess:
         self.connection = self.connect()
 
     def connect(self):
-        # Azure MySQL Database Configuration
+        '''
+            This Function is used to connect to the SQL Database and return the connection
+        '''
         print("Connecting to " + self.server)
         driver= '{ODBC Driver 18 for SQL Server}'
         connection_string = 'Driver='+driver+';Server=tcp:'+self.server+',1433;Database='+self.database+';Uid='+self.username+';PWD='+self.password+';Encrypt=yes;TrustServerCertificate=no;'
@@ -39,12 +43,15 @@ class SQLDataAccess:
         raise ValueError('Cannot Connect With This Object')
 
     def get_data(self, query):
-        #Get data using a query from the sql server
+        '''
+            This function is used to get data from the sql database using a defined query.
+        '''
         print("Getting Data from " + self.server + " using query:\n" + query + "\n")
         try:
             cursor = self.connection.cursor()
             cursor.execute(query)
             rows = cursor.fetchall()
+
             # Fetch column names from cursor.description
             column_names = [column[0] for column in cursor.description]
 
@@ -62,7 +69,9 @@ class SQLDataAccess:
             raise ValueError('Cannot Connect With This Object')
 
     def commit_data(self, query, parameters=None):
-        #Commit data to the sql server using a sepcified query
+        '''
+            This function is used to commit data to the sql server using a sepcified query
+        '''
         print("Committing Data to " + self.server + " using query:\n" + query + "\n")
         try:
             cursor = self.connection.cursor()
@@ -78,7 +87,9 @@ class SQLDataAccess:
 
 
 class CosmosDataAccess:
-    #This class is used to create objects to connect to cosmos db 
+    '''
+        This class is used to create objects to connect to cosmos db 
+    '''
     def __init__(self, db_name, uri):
         self.db_name = db_name
         self.uri = uri
@@ -86,11 +97,13 @@ class CosmosDataAccess:
         self.my_db = self.mongo_client[self.db_name]
 
     def add_data_to_cosmos(self, data, cosmos_collection_name):
-        #Add data to cosmos collection
+        '''
+            This function is used to add data to cosmos collection
+        '''
         print("Adding data to Cosmos collection " + cosmos_collection_name)
         my_col = self.my_db[cosmos_collection_name]
 
-        #If there is sever rows of data use insert_many, otherwise use insert_one
+        #If there is several rows of data use insert_many, otherwise use insert_one
         if isinstance(data, list):
                 result = my_col.insert_many(data)
         elif isinstance(data, dict):
@@ -99,7 +112,9 @@ class CosmosDataAccess:
             raise ValueError("Data should be a dictionary or a list of dictionaries")
         
     def get_data_from_cosmos(self, cosmos_collection_name, query, projection=None):
-        #Get data from a cosmos collection
+        '''
+            This function is used for getting data from a cosmos collection
+        '''
         print("Getting Cosmos Data from collection: " + cosmos_collection_name)
         my_col = self.my_db[cosmos_collection_name]
         
@@ -112,11 +127,13 @@ class CosmosDataAccess:
         return my_docs
 
     def get_daily_summary(self, target_date):
-        #Get the daily summary of orders from the cosmos collection Docket
+        '''
+            This function is used to get the daily summary of orders from the cosmos collection Docket
+        '''
         order_collection = self.my_db["Orders"]
         total_orders = order_collection.count_documents({"orderDate": target_date})
 
-        # Define the pipeline for aggregation
+        # Define the pipeline for aggregating the total_sales and total_commision
         pipeline = [
             {"$match": {"orderDate": target_date}},
             {"$group": {
@@ -153,8 +170,15 @@ class CosmosDataAccess:
 
         return total_orders, total_sales, total_commision, most_popular_pizza["_id"]
 
+    def aggregate_data_in_cosmos(self, collection, pipeline):
+        my_col = self.my_db[collection]
+        result = list(my_col.aggregate(pipeline))
+        return result
+
 class OrderManager:
-    #This class is created to intereact with the server connection object and run the stores operations
+    '''
+        This class is created to intereact with the server access objects and run the stores operations
+    '''
     def __init__(self, clientServ, mainServ, cosmosServ):
         self.clientServ = clientServ
         self.mainServ = mainServ
@@ -162,8 +186,10 @@ class OrderManager:
 
     def format_daily_orders(self, day_orders):
         '''
-        Format the daily orders in a usable way for the document database
+            Format the daily orders in a usable way for the document database
+            Returns: formatted daily orders
         '''
+        
         print("Formatting Orders")
         orders = {}
 
@@ -171,6 +197,7 @@ class OrderManager:
             order_id = order_data['ORDER_ID']
             
             if order_id not in orders:
+                #If the order hasnt been created already set the base data
                 driver = self.get_closest_driver(order_data['POST_CODE'])
 
                 orders[order_id] = {
@@ -203,12 +230,17 @@ class OrderManager:
             orders[order_id]["totalOrderPrice"] = total_order_price
             orders[order_id]["totalDriverCommision"] = round(float(driver["comission"]) * total_order_price, 2)
 
+        #Turn the orders into a list
         orders_to_return = []
         for k, v in orders.items():
             orders_to_return.append(v)
         return orders_to_return
 
     def create_pdf(self, docket):
+        '''
+            This function creates a pdf from the docket and encodes it into a base64 string
+            Returns: base64 encoded pdf
+        '''
         doc = SimpleDocTemplate("temp.pdf", pagesize=letter)
         story = []
 
@@ -232,6 +264,10 @@ class OrderManager:
         return pdf_content_base64
 
     def create_docket_for_order(self, order):
+        '''
+            This function creates the docket for the order
+            Returns: docket
+        '''
         docket = {}
         docket["customer"] = order["customer"]
         docket["orderDate"] = order["orderDate"]
@@ -243,7 +279,10 @@ class OrderManager:
         return docket
 
     def get_daily_orders(self,date):
-        #Get the daily orders and format them
+        '''
+            This function gets the daily orders from the head office sql server
+            Returns: Daily orders
+        '''
         daily_orders = self.mainServ.get_data(
             f"""
                 SELECT 
@@ -268,6 +307,10 @@ class OrderManager:
         return daily_orders
 
     def get_closest_driver(self, postcode):
+        '''
+        This function gets the closest driver given a postcode.
+        Returns: Driver dictionary
+        '''
         try:
             driver = self.cosmosServ.get_data_from_cosmos("Driver", {
                 "$and": [
@@ -280,28 +323,46 @@ class OrderManager:
             print("Failed to find driver covering range, finding closest driver")
             customer_postcode = int(postcode)
 
-            # Search for the driver with the closest range to the postCode
-            drivers = self.cosmosServ.get_data_from_cosmos("Driver", {})
+            # Use MongoDB aggregation framework to find the closest driver
+            pipeline = [
+                {
+                    "$match": {
+                        "suburbStart": {"$exists": True},
+                        "suburbEnd": {"$exists": True}
+                    }
+                },
+                {
+                    "$project": {
+                        "driver": "$$ROOT",
+                        "difference": {
+                            "$min": [
+                                {"$abs": {"$subtract": ["$suburbStart", customer_postcode]}},
+                                {"$abs": {"$subtract": ["$suburbEnd", customer_postcode]}}
+                            ]
+                        }
+                    }
+                },
+                {
+                    "$sort": {"difference": 1}
+                },
+                {
+                    "$limit": 1
+                }
+            ]
 
-            # Initialize variables to keep track of the closest driver and the minimum difference
-            driver = None
-            min_difference = float('inf')
-
-            for driver in drivers:
-                suburb_start = driver.get("suburbStart")
-                suburb_end = driver.get("suburbEnd")
-
-                if suburb_start is not None and suburb_end is not None:
-                    difference = min(abs(suburb_start - customer_postcode), abs(suburb_end - customer_postcode))
-
-                    if difference < min_difference:
-                        min_difference = difference
-                        driver = driver
+            drivers = self.cosmosServ.aggregate_data_in_cosmos("Driver", pipeline)
+            driver = drivers[0]['driver'] if drivers else None
+            print(drivers)
 
         return driver
 
+
     def process_orders(self, date):
-        #Gets the daily orders, annd creates dockets for each of them
+        '''
+            This function adds the daily orders into the document database
+            Returns: Formmated Daily Orders
+        '''
+        #Check if the orders already exist
         days_orders_cursor = self.cosmosServ.get_data_from_cosmos("Orders", {"orderDate": date}, {'_id': 0})
         days_orders = list(days_orders_cursor)  # Convert cursor to a list
 
@@ -312,52 +373,67 @@ class OrderManager:
             daily_orders = self.get_daily_orders(date)
             formatted_daily_orders = self.format_daily_orders(daily_orders)
 
+            #Create dockets for each order
             for order in formatted_daily_orders:
                 docket = self.create_docket_for_order(order)
                 order["docket"] = docket
 
             self.cosmosServ.add_data_to_cosmos(formatted_daily_orders, "Orders")
 
+        #Remove the '_id' tag from the orders
         for order in formatted_daily_orders:
-                    order.pop("_id", None)
+            order.pop("_id", None)
         return formatted_daily_orders
 
     def run_day_operations(self, date):
-        #Run operations for a complete day, creating dockets, and the summary data
+        '''
+            This function adds the daily orders into the document 
+            database and then creates a summary of the daily orders and adds it into the sql databases
+            Returns: null
+        '''
         self.process_orders(date)
         self.end_of_day_operations(date)
 
     def create_new_order(self, order):
-        print(order)
-        #Create a new order
+        '''
+            This function creates a new order and adds the order to the document database
+            Returns: Complete order
+        '''
+        
+
         total_price = 0
+
+        #get the last order id from head office to ensure unique order id
         last_order_id = self.mainServ.get_data("select MAX(order_id) as order_id from pizza.orders")[0]["order_id"]
         order["orderId"] = int(last_order_id) + 1
 
+        #Extract and add the order items
         for item in order['orderItems']:
             try:
+                #Get order item info from head office
                 order_item_info = self.mainServ.get_data(
                     f"select MIN(order_item_id) as order_item_id, MIN(list_price) as list_price from pizza.order_items where product_name = '{item['productName']}'"
                 )
                 item["itemId"] = order_item_info[0]["order_item_id"]
                 item["itemPrice"] = float(order_item_info[0]["list_price"])
-                total = int(item["quantity"]) * float(item["itemPrice"])
-                item["totalPrice"] = total
-                total_price += total
             except:
+                #Create new order id from the last id
                 last_item_id = self.mainServ.get_data("select MAX(order_item_id) as order_item_id from pizza.order_items")[0]["order_item_id"]
                 item["itemId"] = int(last_item_id) + 1
                 item["itemPrice"] =  random.uniform(5, 50)
+            finally:
                 total = int(item["quantity"]) * float(item["itemPrice"])
                 item["totalPrice"] = total
                 total_price += total
 
         try:
-                customer_info = self.mainServ.get_data(
-                    f"select MIN(customer_id) from pizza.customers where first_name = '{order['customer']['firstName']}' && last_name = '{order['customer']['lastName']}'"
-                )
-                order["customer"]["customerId"] = customer_info[0]["customer_id"]
+            #Get customer info from the head office
+            customer_info = self.mainServ.get_data(
+                f"select MIN(customer_id) from pizza.customers where first_name = '{order['customer']['firstName']}' && last_name = '{order['customer']['lastName']}'"
+            )
+            order["customer"]["customerId"] = customer_info[0]["customer_id"]
         except:
+            #Create new customer id from last customer
             last_customer_id = self.mainServ.get_data("select MAX(customer_id) as customer_id from pizza.customers")[0]["customer_id"]
             order["customer"]["customerId"] = int(last_customer_id) + 1
         
@@ -378,7 +454,10 @@ class OrderManager:
         return order
 
     def end_of_day_operations(self, date):
-        #Get the daily summary and add the data into the sql servers.
+        '''
+            This functions gets the daily summary and adds the data into the sql servers.
+            returns: summary dictionary
+        '''
         try:
             total_orders, total_sales, total_commision, most_popular_pizza = self.cosmosServ.get_daily_summary(date)
             summary_dict = {

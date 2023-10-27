@@ -40,31 +40,8 @@ def create_new_connectors():
 
     orderManager = OrderManager(clientServ, mainServ, cosmosServ)
 
-
-@app.route('/api/orders/<date>')
-def get_orders(date):
-    # This route is used to get orders for a specific date
-    attempt = 0
-    error = ""
-
-    print("attempt: " + str(attempt))
-    try:
-        daily_orders = orderManager.get_daily_orders(date)
-        formatted_daily_orders = orderManager.format_daily_orders(daily_orders)
-        print(formatted_daily_orders)
-        print("Successfully got Orders for date: " + date)
-        return jsonify(formatted_daily_orders)
-    except Exception as e:
-        print(e)
-        print("Creating New Connectors")
-        error = e
-        create_new_connectors()
-        attempt += 1
-    
-    return jsonify({'error': str(error)}), 500
-
 @app.route('/api/orders/process/<date>')
-def create_dockets(date):
+def process_day_orders(date):
     #This route creates dockets for a specific date
     attempt = 0
     error = ""
